@@ -1,7 +1,7 @@
 import os
 import time
 import torch
-from torch.cuda.amp import autocast
+from torch.cuda.amp import autocast, GradScaler
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.data import DataLoader
 from transformers import AdamW, get_polynomial_decay_schedule_with_warmup
@@ -44,11 +44,12 @@ class Trainer:
 
         # for name, param in self.model.named_parameters():
         #     print(name, param.dtype)
-
         self.optimizer = AdamW(self.model.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
         self.scheduler = get_polynomial_decay_schedule_with_warmup(optimizer=self.optimizer,
                                                                    num_warmup_steps=self.warmup_steps,
+                                                                   num_training_steps=1500,
                                                                    lr_end=0.0)
+        self.scaler = GradScaler()
 
     def get_data_loader(self):
         # 加载数据集
@@ -76,11 +77,13 @@ class Trainer:
                 labels = batch_data[2].cuda()
                 with autocast():
                     loss = self.model(input_ids, attention_mask, labels)
-                if current_step % 100 == 0:
+                if current_step % 50 == 0:
                     writer.add_scalar('loss', loss.detach(), current_step)
-                    print(loss)
-                loss.backward()
-                clip_grad_norm_(self.model.parameters(), 1.0)
+                    print("loss", loss)
+#                self.scaler.scale(loss).backward()
+                    loss.backward()
+ #               self.scaler.unscale_(self.optimizer)
+                torch.nn.utils.clip_grad_norm(self.model.parameters(),  1.0)
                 self.optimizer.step()
                 self.scheduler.step()
                 self.optimizer.zero_grad()
